@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, User, MapPin, Car, ClipboardCheck } from 'lucide-react'
+import { Check, User, MapPin, Car, ClipboardCheck, Navigation, Star, Leaf, Clock, Zap } from 'lucide-react'
 import PageHeader from '@/components/layout/PageHeader'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
@@ -11,9 +11,18 @@ import { mockDrivers } from '@/mocks/db/drivers'
 import type { ServiceType, RideWaypoint } from '@/types'
 import { formatCurrency } from '@/utils/formatters'
 import { calcCO2Grams, formatCO2 } from '@/utils/carbonFootprint'
+import {
+  findNearestVehicles,
+  geocodeAddress,
+  haversineKm,
+  type NearestVehicleResult,
+} from '@/utils/geoDistance'
 import clsx from 'clsx'
 
-// --- Types ---
+// ─────────────────────────────────────────────────────────────────────────────
+// Tipi e costanti
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface BookingFormData {
   passengerName: string
   passengerPhone: string
@@ -22,7 +31,11 @@ interface BookingFormData {
   costCenterId: string
   serviceType: ServiceType
   origin: string
+  originLat: number | null
+  originLng: number | null
   destination: string
+  destinationLat: number | null
+  destinationLng: number | null
   scheduledAt: string
   notes: string
   vehicleId: string
@@ -37,12 +50,19 @@ const INITIAL: BookingFormData = {
   costCenterId: '',
   serviceType: 'ncc',
   origin: '',
+  originLat: null,
+  originLng: null,
   destination: '',
+  destinationLat: null,
+  destinationLng: null,
   scheduledAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16),
   notes: '',
   vehicleId: '',
   driverId: '',
 }
+
+// Centro di Milano come fallback quando il geocoding non è ancora disponibile
+const MILAN_CENTER = { lat: 45.4654, lng: 9.1866 }
 
 const STEPS = [
   { id: 1, label: 'Passeggero', icon: User },
@@ -58,36 +78,100 @@ const SERVICE_TYPES: { value: ServiceType; label: string; desc: string }[] = [
   { value: 'transfer_fiera', label: 'Transfer Fiera', desc: 'Servizio fieristico' },
 ]
 
-// Simple distance estimate (not real geo)
-function estimateDistance(origin: string, dest: string): number {
-  const seed = (origin.length + dest.length) % 50
-  return Math.max(5, seed + 10)
+function estimatePrice(distanceKm: number, service: ServiceType): number {
+  const basePerKm = service === 'ncc' ? 2.2 : service === 'taxi' ? 1.8 : 2.5
+  return Math.round((distanceKm * basePerKm + 8) * 100) / 100
 }
 
-function estimatePrice(distance: number, service: ServiceType): number {
-  const base = service === 'ncc' ? 2.2 : service === 'taxi' ? 1.8 : 2.5
-  return Math.round((distance * base + 8) * 100) / 100
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Componente principale
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function BookingWizard() {
   const navigate = useNavigate()
   const { company } = useAuth()
   const { success, error: showError } = useToasts()
+
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<BookingFormData>(INITIAL)
   const [submitting, setSubmitting] = useState(false)
 
-  const set = (key: keyof BookingFormData, value: string) =>
+  // Stato geocoding
+  const [geocodingOrigin, setGeocodingOrigin] = useState(false)
+  const [geocodingDest, setGeocodingDest] = useState(false)
+  const originTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const destTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Ranking veicoli vicini (calcolato in Step 3)
+  const [ranking, setRanking] = useState<NearestVehicleResult[]>([])
+
+  const set = (key: keyof BookingFormData, value: string | number | null) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
-  const availableVehicles = mockVehicles.filter((v) => v.status === 'disponibile')
-  const availableDrivers = mockDrivers.filter((d) => d.status === 'disponibile')
+  // ── Geocoding debounced: attende 800ms dopo l'ultimo carattere digitato ──
+
+  const handleOriginChange = (value: string) => {
+    set('origin', value)
+    set('originLat', null)
+    set('originLng', null)
+    if (originTimer.current) clearTimeout(originTimer.current)
+    if (value.length < 5) return
+    originTimer.current = setTimeout(async () => {
+      setGeocodingOrigin(true)
+      const coords = await geocodeAddress(value)
+      setGeocodingOrigin(false)
+      if (coords) {
+        set('originLat', coords.lat)
+        set('originLng', coords.lng)
+      }
+    }, 800)
+  }
+
+  const handleDestChange = (value: string) => {
+    set('destination', value)
+    set('destinationLat', null)
+    set('destinationLng', null)
+    if (destTimer.current) clearTimeout(destTimer.current)
+    if (value.length < 5) return
+    destTimer.current = setTimeout(async () => {
+      setGeocodingDest(true)
+      const coords = await geocodeAddress(value)
+      setGeocodingDest(false)
+      if (coords) {
+        set('destinationLat', coords.lat)
+        set('destinationLng', coords.lng)
+      }
+    }, 800)
+  }
+
+  // ── Calcola ranking quando si arriva allo Step 3 ──
+  useEffect(() => {
+    if (step !== 3) return
+    const pickupLat = form.originLat ?? MILAN_CENTER.lat
+    const pickupLng = form.originLng ?? MILAN_CENTER.lng
+    const results = findNearestVehicles(pickupLat, pickupLng, mockDrivers, mockVehicles)
+    setRanking(results)
+    // Auto-seleziona il più vicino se non c'è già una scelta
+    if (results.length > 0 && !form.vehicleId) {
+      set('vehicleId', results[0].vehicle.id)
+      set('driverId', results[0].driver.id)
+    }
+  }, [step])
+
+  // ── Distanza corsa ──
+  const routeDistanceKm: number = (() => {
+    if (form.originLat && form.originLng && form.destinationLat && form.destinationLng) {
+      return Math.round(haversineKm(form.originLat, form.originLng, form.destinationLat, form.destinationLng) * 10) / 10
+    }
+    // fallback euristico se geocoding non disponibile
+    const seed = (form.origin.length + form.destination.length) % 50
+    return Math.max(5, seed + 10)
+  })()
+
   const selectedVehicle = mockVehicles.find((v) => v.id === form.vehicleId)
   const selectedDriver = mockDrivers.find((d) => d.id === form.driverId)
-
-  const distance = form.origin && form.destination ? estimateDistance(form.origin, form.destination) : 0
-  const price = distance ? estimatePrice(distance, form.serviceType) : 0
-  const co2 = selectedVehicle && distance ? calcCO2Grams(distance, selectedVehicle.co2PerKm) : 0
+  const price = routeDistanceKm ? estimatePrice(routeDistanceKm, form.serviceType) : 0
+  const co2 = selectedVehicle && routeDistanceKm ? calcCO2Grams(routeDistanceKm, selectedVehicle.co2PerKm) : 0
 
   const canProceed = (s: number) => {
     if (s === 1) return form.passengerName.trim() !== '' && form.costCenterId !== ''
@@ -99,8 +183,16 @@ export default function BookingWizard() {
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
-      const origin: RideWaypoint = { label: form.origin, lat: 45.4654 + Math.random() * 0.1, lng: 9.1866 + Math.random() * 0.1 }
-      const destination: RideWaypoint = { label: form.destination, lat: 45.4654 + Math.random() * 0.1, lng: 9.1866 + Math.random() * 0.1 }
+      const origin: RideWaypoint = {
+        label: form.origin,
+        lat: form.originLat ?? MILAN_CENTER.lat,
+        lng: form.originLng ?? MILAN_CENTER.lng,
+      }
+      const destination: RideWaypoint = {
+        label: form.destination,
+        lat: form.destinationLat ?? MILAN_CENTER.lat + 0.05,
+        lng: form.destinationLng ?? MILAN_CENTER.lng + 0.05,
+      }
       const result = await ridesApi.create({
         companyId: 'comp-001',
         costCenterId: form.costCenterId,
@@ -117,9 +209,9 @@ export default function BookingWizard() {
         scheduledAt: new Date(form.scheduledAt).toISOString(),
         startedAt: null,
         completedAt: null,
-        estimatedDuration: Math.round(distance * 2),
+        estimatedDuration: Math.round(routeDistanceKm * 2.2),
         actualDuration: null,
-        estimatedDistance: distance,
+        estimatedDistance: routeDistanceKm,
         actualDistance: null,
         estimatedPrice: price,
         finalPrice: null,
@@ -137,6 +229,10 @@ export default function BookingWizard() {
       setSubmitting(false)
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -170,7 +266,7 @@ export default function BookingWizard() {
       </div>
 
       <Card>
-        {/* Step 1: Passenger */}
+        {/* ── Step 1: Passeggero ── */}
         {step === 1 && (
           <div className="space-y-4">
             <h3 className="font-semibold text-gray-900 text-lg mb-4">Dati Passeggero</h3>
@@ -207,10 +303,11 @@ export default function BookingWizard() {
           </div>
         )}
 
-        {/* Step 2: Route */}
+        {/* ── Step 2: Percorso con geocoding ── */}
         {step === 2 && (
           <div className="space-y-4">
             <h3 className="font-semibold text-gray-900 text-lg mb-4">Percorso e Servizio</h3>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo servizio</label>
               <div className="grid grid-cols-2 gap-2">
@@ -224,18 +321,69 @@ export default function BookingWizard() {
                 ))}
               </div>
             </div>
+
+            {/* Partenza con geocoding */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Partenza *</label>
-              <input value={form.origin} onChange={(e) => set('origin', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="Via della Repubblica 15, Milano" />
+              <div className="relative">
+                <input
+                  value={form.origin}
+                  onChange={(e) => handleOriginChange(e.target.value)}
+                  className={clsx(
+                    'w-full px-3 py-2 pr-8 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500',
+                    form.originLat ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300'
+                  )}
+                  placeholder="Via della Repubblica 15, Milano"
+                />
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                  {geocodingOrigin ? (
+                    <svg className="animate-spin w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : form.originLat ? (
+                    <Navigation size={14} className="text-emerald-600" />
+                  ) : null}
+                </div>
+              </div>
+              {form.originLat && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                  <Navigation size={10} /> Posizione rilevata: {form.originLat.toFixed(5)}, {form.originLng?.toFixed(5)}
+                </p>
+              )}
             </div>
+
+            {/* Destinazione con geocoding */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Destinazione *</label>
-              <input value={form.destination} onChange={(e) => set('destination', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="Aeroporto di Malpensa T1" />
+              <div className="relative">
+                <input
+                  value={form.destination}
+                  onChange={(e) => handleDestChange(e.target.value)}
+                  className={clsx(
+                    'w-full px-3 py-2 pr-8 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500',
+                    form.destinationLat ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300'
+                  )}
+                  placeholder="Aeroporto di Malpensa T1"
+                />
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                  {geocodingDest ? (
+                    <svg className="animate-spin w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : form.destinationLat ? (
+                    <Navigation size={14} className="text-emerald-600" />
+                  ) : null}
+                </div>
+              </div>
+              {form.destinationLat && form.originLat && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                  <Navigation size={10} /> Distanza corsa: ~{routeDistanceKm} km
+                </p>
+              )}
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Data e ora *</label>
               <input type="datetime-local" value={form.scheduledAt} onChange={(e) => set('scheduledAt', e.target.value)}
@@ -250,54 +398,124 @@ export default function BookingWizard() {
           </div>
         )}
 
-        {/* Step 3: Vehicle */}
+        {/* ── Step 3: Veicolo più vicino (algoritmo Haversine) ── */}
         {step === 3 && (
-          <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900 text-lg mb-4">Scegli Veicolo e Autista</h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Veicolo disponibile *</label>
-              <div className="space-y-2">
-                {availableVehicles.map((v) => (
-                  <button key={v.id} onClick={() => set('vehicleId', v.id)}
-                    className={clsx('w-full text-left p-4 rounded-xl border-2 transition-all',
-                      form.vehicleId === v.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">{v.brand} {v.model} <span className="text-gray-400 font-normal">— {v.plate}</span></p>
-                        <p className="text-xs text-gray-500 mt-0.5">{v.seats} posti · {v.fuelType} · {v.year}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-medium text-emerald-600">{v.co2PerKm} g/km CO₂</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900 text-lg">Veicolo e Autista</h3>
+              {form.originLat ? (
+                <span className="text-xs text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-full">
+                  <Navigation size={10} /> Ordinati per distanza da te
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  <Navigation size={10} /> Posizione approssimata (Milano)
+                </span>
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Autista disponibile *</label>
-              <div className="space-y-2">
-                {availableDrivers.map((d) => (
-                  <button key={d.id} onClick={() => set('driverId', d.id)}
-                    className={clsx('w-full text-left p-4 rounded-xl border-2 transition-all',
-                      form.driverId === d.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">{d.firstName} {d.lastName}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">NCC: {d.nccAuthorizationNumber} · {d.totalRides} corse</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-amber-600">★ {d.rating}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+
+            {ranking.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Car size={32} className="mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">Nessun veicolo disponibile al momento</p>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {ranking.map((r, idx) => {
+                  const isSelected = form.vehicleId === r.vehicle.id
+                  return (
+                    <button
+                      key={r.vehicle.id}
+                      onClick={() => { set('vehicleId', r.vehicle.id); set('driverId', r.driver.id) }}
+                      className={clsx(
+                        'w-full text-left rounded-xl border-2 transition-all overflow-hidden',
+                        isSelected ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                      )}
+                    >
+                      {/* Badge posizione ranking */}
+                      <div className={clsx(
+                        'flex items-center gap-2 px-4 py-1.5 text-xs font-semibold',
+                        r.isNearest ? 'bg-emerald-500 text-white' :
+                        idx === 1 ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-500'
+                      )}>
+                        {r.isNearest ? (
+                          <><Zap size={12} /> Più vicino — arriva in ~{r.etaMinutes} min</>
+                        ) : (
+                          <><Clock size={12} /> #{idx + 1} — ~{r.etaMinutes} min di attesa</>
+                        )}
+                      </div>
+
+                      <div className="p-4">
+                        {/* Veicolo */}
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              {r.vehicle.brand} {r.vehicle.model}
+                              <span className="text-gray-400 font-normal text-sm ml-2">— {r.vehicle.plate}</span>
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {r.vehicle.seats} posti · {r.vehicle.fuelType} · {r.vehicle.year}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs font-medium text-emerald-600 flex items-center gap-1">
+                              <Leaf size={10} /> {r.vehicle.co2PerKm} g/km CO₂
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="border-t border-gray-100 my-3" />
+
+                        {/* Autista + distanza */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 text-xs font-bold">
+                              {r.driver.firstName[0]}{r.driver.lastName[0]}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                {r.driver.firstName} {r.driver.lastName}
+                              </p>
+                              <p className="text-xs text-gray-400">{r.driver.totalRides} corse</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-right">
+                            {/* Rating */}
+                            <div className="flex items-center gap-0.5">
+                              <Star size={12} className="text-amber-400 fill-amber-400" />
+                              <span className="text-sm font-semibold text-gray-700">{r.driver.rating}</span>
+                            </div>
+                            {/* Distanza autista → pickup */}
+                            <div className="bg-gray-100 rounded-lg px-2.5 py-1 text-center">
+                              <p className="text-xs font-bold text-gray-800">{r.distanceKm} km</p>
+                              <p className="text-[10px] text-gray-400 leading-none">da te</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Score bar (visivo) */}
+                        <div className="mt-3 flex items-center gap-2">
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                            <div
+                              className={clsx('h-1.5 rounded-full', r.isNearest ? 'bg-emerald-500' : 'bg-brand-300')}
+                              style={{ width: `${Math.round((1 - r.score) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-gray-400">
+                            score {Math.round((1 - r.score) * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Step 4: Confirm */}
+        {/* ── Step 4: Conferma ── */}
         {step === 4 && (
           <div className="space-y-4">
             <h3 className="font-semibold text-gray-900 text-lg mb-4">Riepilogo Prenotazione</h3>
@@ -311,11 +529,20 @@ export default function BookingWizard() {
               <Row label="Data/ora" value={new Date(form.scheduledAt).toLocaleString('it-IT')} />
               <Row label="Veicolo" value={selectedVehicle ? `${selectedVehicle.brand} ${selectedVehicle.model} (${selectedVehicle.plate})` : '—'} />
               <Row label="Autista" value={selectedDriver ? `${selectedDriver.firstName} ${selectedDriver.lastName}` : '—'} />
+              {(() => {
+                const ranked = ranking.find((r) => r.vehicle.id === form.vehicleId)
+                return ranked ? (
+                  <>
+                    <Row label="Distanza autista → pickup" value={`${ranked.distanceKm} km`} />
+                    <Row label="ETA stimato autista" value={`~${ranked.etaMinutes} min`} />
+                  </>
+                ) : null
+              })()}
             </div>
             <div className="grid grid-cols-3 gap-4 mt-4">
               <div className="bg-brand-50 rounded-xl p-4 text-center">
-                <p className="text-xs text-gray-500 mb-1">Distanza stimata</p>
-                <p className="text-xl font-bold text-brand-700">{distance} km</p>
+                <p className="text-xs text-gray-500 mb-1">Distanza corsa</p>
+                <p className="text-xl font-bold text-brand-700">{routeDistanceKm} km</p>
               </div>
               <div className="bg-emerald-50 rounded-xl p-4 text-center">
                 <p className="text-xs text-gray-500 mb-1">Prezzo stimato</p>
@@ -329,7 +556,7 @@ export default function BookingWizard() {
           </div>
         )}
 
-        {/* Navigation */}
+        {/* Navigazione */}
         <div className="flex justify-between mt-6 pt-6 border-t border-gray-200">
           <Button variant="outline" onClick={() => step > 1 ? setStep(step - 1) : navigate('/prenotazione')}>
             {step === 1 ? 'Annulla' : '← Indietro'}
