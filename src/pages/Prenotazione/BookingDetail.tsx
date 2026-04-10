@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { MapPin, User, Car, Clock, Banknote, Leaf, X } from 'lucide-react'
+import { MapPin, User, Car, Clock, Banknote, Leaf, X, Phone, Star } from 'lucide-react'
 import PageHeader from '@/components/layout/PageHeader'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { RideStatusBadge } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import Modal from '@/components/ui/Modal'
+import ChatDrawer, { ChatButton } from '@/components/ui/ChatDrawer'
+import CallOverlay from '@/components/ui/CallOverlay'
+import RatingModal from '@/components/ui/RatingModal'
 import { ridesApi } from '@/mocks/api/ridesApi'
 import { mockDrivers } from '@/mocks/db/drivers'
 import { mockVehicles } from '@/mocks/db/vehicles'
@@ -23,6 +26,9 @@ export default function BookingDetail() {
   const [loading, setLoading] = useState(true)
   const [cancelModal, setCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [callOpen, setCallOpen] = useState(false)
+  const [ratingOpen, setRatingOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -38,7 +44,7 @@ export default function BookingDetail() {
       success('Corsa annullata')
       setCancelModal(false)
     } catch {
-      showError('Errore durante l\'annullamento')
+      showError("Errore durante l'annullamento")
     } finally {
       setCancelling(false)
     }
@@ -50,6 +56,7 @@ export default function BookingDetail() {
   const driver = ride.driverId ? mockDrivers.find((d) => d.id === ride.driverId) : null
   const vehicle = ride.vehicleId ? mockVehicles.find((v) => v.id === ride.vehicleId) : null
   const canCancel = ['bozza', 'confermata', 'assegnata'].includes(ride.status)
+  const driverName = driver ? `${driver.firstName} ${driver.lastName}` : 'Autista'
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -57,11 +64,26 @@ export default function BookingDetail() {
         title={`Corsa ${ride.internalRef || ride.id}`}
         breadcrumbs={[{ label: 'Prenotazioni', to: '/prenotazione' }, { label: ride.internalRef || ride.id }]}
         actions={
-          canCancel ? (
-            <Button variant="danger" size="sm" onClick={() => setCancelModal(true)}>
-              <X size={14} /> Annulla corsa
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2 flex-wrap">
+            {ride.status === 'completata' && (
+              <Button variant="outline" size="sm" onClick={() => setRatingOpen(true)}>
+                <Star size={14} /> Valuta
+              </Button>
+            )}
+            {ride.driverId && (
+              <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}>
+                <Phone size={14} /> Chiama
+              </Button>
+            )}
+            {ride.driverId && (
+              <ChatButton rideId={ride.id} driverId={ride.driverId} onClick={() => setChatOpen(true)} />
+            )}
+            {canCancel && (
+              <Button variant="danger" size="sm" onClick={() => setCancelModal(true)}>
+                <X size={14} /> Annulla corsa
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -181,6 +203,33 @@ export default function BookingDetail() {
           <Button variant="danger" loading={cancelling} onClick={handleCancel}>Sì, annulla corsa</Button>
         </div>
       </Modal>
+
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        rideId={ride.id}
+        driverId={ride.driverId ?? null}
+        driverName={driverName}
+        passengerName={ride.passengerName}
+        onCallRequest={() => { setChatOpen(false); setCallOpen(true) }}
+      />
+
+      <CallOverlay
+        open={callOpen}
+        onClose={() => setCallOpen(false)}
+        driverName={driverName}
+        driverPhone={driver?.phone ?? ''}
+        vehiclePlate={vehicle?.plate ?? ''}
+      />
+
+      <RatingModal
+        open={ratingOpen}
+        onClose={() => setRatingOpen(false)}
+        rideId={ride.id}
+        driverId={ride.driverId ?? ''}
+        driverName={driverName}
+        passengerId="passenger-001"
+      />
     </div>
   )
 }

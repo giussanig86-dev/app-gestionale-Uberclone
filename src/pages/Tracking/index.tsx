@@ -4,10 +4,12 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 import { Phone, Clock, MapPin, Navigation, ChevronRight } from 'lucide-react'
 import { RideStatusBadge } from '@/components/ui/Badge'
+import ChatDrawer, { ChatButton } from '@/components/ui/ChatDrawer'
+import CallOverlay from '@/components/ui/CallOverlay'
 import { ridesApi } from '@/mocks/api/ridesApi'
 import { driversApi } from '@/mocks/api/driversApi'
 import type { Ride, Driver } from '@/types'
-import { formatDateTime, formatCurrency } from '@/utils/formatters'
+import { formatDateTime } from '@/utils/formatters'
 import clsx from 'clsx'
 
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
@@ -44,6 +46,8 @@ export default function TrackingPage() {
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [positions, setPositions] = useState<Record<string, DriverPosition>>({})
   const [selectedRideId, setSelectedRideId] = useState<string | null>(rideId ?? null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [callOpen, setCallOpen] = useState(false)
 
   const refreshPositions = useCallback(async () => {
     const res = await driversApi.getAllPositions()
@@ -68,9 +72,16 @@ export default function TrackingPage() {
     return () => clearInterval(interval)
   }, [refreshPositions])
 
+  // Close chat/call when switching ride
+  useEffect(() => {
+    setChatOpen(false)
+    setCallOpen(false)
+  }, [selectedRideId])
+
   const selectedRide = rides.find((r) => r.id === selectedRideId)
   const selectedDriver = selectedRide?.driverId ? drivers.find((d) => d.id === selectedRide.driverId) : null
   const selectedPos = selectedRide?.driverId ? positions[selectedRide.driverId] : null
+  const selectedDriverName = selectedDriver ? `${selectedDriver.firstName} ${selectedDriver.lastName}` : 'Autista'
 
   const mapCenter: [number, number] = selectedPos
     ? [selectedPos.lat, selectedPos.lng]
@@ -171,7 +182,7 @@ export default function TrackingPage() {
                 Dettaglio →
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-2 gap-3 text-xs mb-3">
               <div className="flex items-center gap-1.5 text-gray-600">
                 <MapPin size={12} className="text-emerald-500" />
                 <span className="truncate">{selectedRide.origin.label.split(',')[0]}</span>
@@ -181,17 +192,54 @@ export default function TrackingPage() {
                 <span className="truncate">{selectedRide.destination.label.split(',')[0]}</span>
               </div>
               {selectedDriver && (
-                <div className="flex items-center gap-1.5 text-gray-600">
-                  <Phone size={12} /> <span>{selectedDriver.phone}</span>
+                <div className="flex items-center gap-1.5 text-gray-600 col-span-2">
+                  <Navigation size={12} />
+                  <span>{selectedDriverName}</span>
+                  {selectedPos && <span className="ml-1 text-gray-400">· {selectedPos.speed} km/h</span>}
                 </div>
               )}
               <div className="flex items-center gap-1.5 text-gray-600">
                 <Clock size={12} /> <span>{formatDateTime(selectedRide.scheduledAt)}</span>
               </div>
             </div>
+
+            {/* Comunicazione autista */}
+            {selectedRide.driverId && (
+              <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+                <ChatButton
+                  rideId={selectedRide.id}
+                  driverId={selectedRide.driverId}
+                  onClick={() => setChatOpen(true)}
+                />
+                <button
+                  onClick={() => setCallOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  <Phone size={14} /> Chiama
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        rideId={selectedRide?.id ?? ''}
+        driverId={selectedRide?.driverId ?? null}
+        driverName={selectedDriverName}
+        passengerName={selectedRide?.passengerName ?? ''}
+        onCallRequest={() => { setChatOpen(false); setCallOpen(true) }}
+      />
+
+      <CallOverlay
+        open={callOpen}
+        onClose={() => setCallOpen(false)}
+        driverName={selectedDriverName}
+        driverPhone={selectedDriver?.phone ?? ''}
+        vehiclePlate={selectedPos ? `${selectedPos.speed} km/h` : ''}
+      />
     </div>
   )
 }
