@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter } from 'lucide-react'
+import { Plus, Search, Car } from 'lucide-react'
 import PageHeader from '@/components/layout/PageHeader'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
@@ -9,8 +9,8 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import EmptyState from '@/components/ui/EmptyState'
 import { ridesApi } from '@/mocks/api/ridesApi'
 import type { Ride, RideStatus } from '@/types'
-import { formatCurrency, formatDateTime, formatDistance } from '@/utils/formatters'
-import { Car } from 'lucide-react'
+import { formatCurrency, formatDateTime } from '@/utils/formatters'
+import { useAuth } from '@/store/AppContext'
 
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   ncc: 'NCC',
@@ -30,14 +30,28 @@ const STATUS_FILTERS: { value: RideStatus | 'tutti'; label: string }[] = [
 
 export default function PrenotazionePage() {
   const navigate = useNavigate()
+  const { role, user } = useAuth()
   const [rides, setRides] = useState<Ride[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<RideStatus | 'tutti'>('tutti')
 
   useEffect(() => {
-    ridesApi.getAll({ companyId: 'comp-001' }).then((r) => setRides(r.data)).finally(() => setLoading(false))
-  }, [])
+    ridesApi.getAll({ companyId: 'comp-001' }).then((r) => {
+      let data = r.data
+      // Filtro per ruolo: dipendente vede solo le proprie corse, autista solo le sue
+      if (role === 'dipendente' && user) {
+        const fullName = `${user.firstName} ${user.lastName}`
+        data = data.filter((ride) => ride.passengerName === fullName)
+      } else if (role === 'autista' && user?.driverId) {
+        data = data.filter((ride) => ride.driverId === user.driverId)
+      }
+      setRides(data)
+    }).finally(() => setLoading(false))
+  }, [role, user])
+
+  // Il customer service non può creare nuove prenotazioni
+  const canBook = role && ['gestore_flotta', 'azienda', 'dipendente', 'supervisore_it'].includes(role)
 
   const filtered = rides.filter((r) => {
     const matchStatus = statusFilter === 'tutti' || r.status === statusFilter
@@ -54,10 +68,12 @@ export default function PrenotazionePage() {
         title="Prenotazioni"
         subtitle={`${rides.length} corse totali`}
         actions={
-          <Button onClick={() => navigate('/prenotazione/nuova')}>
-            <Plus size={16} />
-            Nuova prenotazione
-          </Button>
+          canBook ? (
+            <Button onClick={() => navigate('/prenotazione/nuova')}>
+              <Plus size={16} />
+              Nuova prenotazione
+            </Button>
+          ) : undefined
         }
       />
 

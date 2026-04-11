@@ -119,6 +119,7 @@ export function useAuth() {
   const { state, dispatch } = useAppContext()
   return {
     ...state.auth,
+    role: state.auth.user?.role ?? null,
     login: (company: Company, user: CompanyEmployee) => dispatch({ type: 'LOGIN', company, user }),
     logout: () => dispatch({ type: 'LOGOUT' }),
   }

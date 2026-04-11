@@ -8,6 +8,23 @@ export interface CostCenter {
   managerId: string
 }
 
+export type UserRole =
+  | 'autista'
+  | 'gestore_flotta'
+  | 'azienda'
+  | 'dipendente'
+  | 'supervisore_it'
+  | 'customer_service'
+
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  autista: 'Autista',
+  gestore_flotta: 'Gestore Flotta',
+  azienda: 'Amministratore Azienda',
+  dipendente: 'Dipendente',
+  supervisore_it: 'Supervisore IT',
+  customer_service: 'Customer Service',
+}
+
 export interface CompanyEmployee {
   id: string
   companyId: string
@@ -16,8 +33,9 @@ export interface CompanyEmployee {
   email: string
   phone: string
   costCenterId: string
-  role: 'admin' | 'booking_manager' | 'traveler'
+  role: UserRole
   isActive: boolean
+  driverId?: string   // solo per ruolo 'autista'
 }
 
 export interface Company {

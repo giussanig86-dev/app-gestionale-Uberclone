@@ -25,11 +25,20 @@ export const mockCompanies: Company[] = [
       { id: 'cc-004', companyId: 'comp-001', code: 'IT-001', name: 'IT & Digital', budget: 3000, spent: 900, managerId: 'emp-004' },
     ],
     employees: [
-      { id: 'emp-001', companyId: 'comp-001', firstName: 'Marco', lastName: 'Rossi', email: 'marco.rossi@acme.it', phone: '+39 333 1111111', costCenterId: 'cc-001', role: 'admin', isActive: true },
-      { id: 'emp-002', companyId: 'comp-001', firstName: 'Laura', lastName: 'Bianchi', email: 'laura.bianchi@acme.it', phone: '+39 333 2222222', costCenterId: 'cc-002', role: 'booking_manager', isActive: true },
-      { id: 'emp-003', companyId: 'comp-001', firstName: 'Giovanni', lastName: 'Verdi', email: 'g.verdi@acme.it', phone: '+39 333 3333333', costCenterId: 'cc-003', role: 'traveler', isActive: true },
-      { id: 'emp-004', companyId: 'comp-001', firstName: 'Stefania', lastName: 'Ferrari', email: 's.ferrari@acme.it', phone: '+39 333 4444444', costCenterId: 'cc-004', role: 'traveler', isActive: true },
-      { id: 'emp-005', companyId: 'comp-001', firstName: 'Roberto', lastName: 'Esposito', email: 'r.esposito@acme.it', phone: '+39 333 5555555', costCenterId: 'cc-003', role: 'traveler', isActive: true },
+      // ─── Dipendente azienda cliente (accesso solo proprie corse) ───
+      { id: 'emp-001', companyId: 'comp-001', firstName: 'Marco', lastName: 'Rossi', email: 'marco.rossi@acme.it', phone: '+39 333 1111111', costCenterId: 'cc-001', role: 'dipendente', isActive: true },
+      { id: 'emp-002', companyId: 'comp-001', firstName: 'Laura', lastName: 'Bianchi', email: 'laura.bianchi@acme.it', phone: '+39 333 2222222', costCenterId: 'cc-002', role: 'dipendente', isActive: true },
+      { id: 'emp-003', companyId: 'comp-001', firstName: 'Giovanni', lastName: 'Verdi', email: 'g.verdi@acme.it', phone: '+39 333 3333333', costCenterId: 'cc-003', role: 'dipendente', isActive: true },
+      // ─── Amministratore azienda cliente (prenotazioni + fatture azienda) ───
+      { id: 'emp-004', companyId: 'comp-001', firstName: 'Chiara', lastName: 'Conti', email: 'cfo.admin@acme.it', phone: '+39 333 4444444', costCenterId: 'cc-001', role: 'azienda', isActive: true },
+      // ─── Gestore Flotta NCC (flotta + tracking + fatturazione corse) ───
+      { id: 'emp-010', companyId: 'comp-001', firstName: 'Giulia', lastName: 'Bianchi', email: 'giulia.bianchi@ncc.it', phone: '+39 333 1010101', costCenterId: 'cc-001', role: 'gestore_flotta', isActive: true },
+      // ─── Autista NCC (solo proprie corse assegnate) ───
+      { id: 'emp-011', companyId: 'comp-001', firstName: 'Luca', lastName: 'Ferrari', email: 'luca.ferrari@ncc.it', phone: '+39 333 1111112', costCenterId: 'cc-001', role: 'autista', isActive: true, driverId: 'driver-001' },
+      // ─── Supervisore IT (accesso totale + gestione utenti) ───
+      { id: 'emp-012', companyId: 'comp-001', firstName: 'Andrea', lastName: 'Mancini', email: 'admin.it@sistema.it', phone: '+39 333 1212121', costCenterId: 'cc-004', role: 'supervisore_it', isActive: true },
+      // ─── Customer Service (corse read + chat) ───
+      { id: 'emp-013', companyId: 'comp-001', firstName: 'Sara', lastName: 'Romano', email: 'cs.support@ncc.it', phone: '+39 333 1313131', costCenterId: 'cc-001', role: 'customer_service', isActive: true },
     ],
     createdAt: '2023-01-15T09:00:00Z',
   },

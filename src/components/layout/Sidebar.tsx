@@ -1,22 +1,45 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, CalendarPlus, Car, MapPin, Receipt, Leaf, ShieldCheck, LogOut, ChevronLeft, ChevronRight, Truck
+  LayoutDashboard, CalendarPlus, Car, MapPin, Receipt, Leaf, ShieldCheck,
+  LogOut, ChevronLeft, ChevronRight, Truck, Users,
 } from 'lucide-react'
 import { useAuth, useAppContext } from '@/store/AppContext'
+import type { UserRole } from '@/types'
+import { USER_ROLE_LABELS } from '@/types'
 import clsx from 'clsx'
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/prenotazione', label: 'Prenotazioni', icon: CalendarPlus },
-  { to: '/flotta', label: 'Flotta', icon: Truck },
-  { to: '/tracking', label: 'Tracking Live', icon: MapPin },
-  { to: '/fatturazione', label: 'Fatturazione', icon: Receipt },
-  { to: '/carbon', label: 'Carbon Footprint', icon: Leaf },
-  { to: '/compliance', label: 'Compliance', icon: ShieldCheck },
+const ALL_ROLES: UserRole[] = ['autista', 'gestore_flotta', 'azienda', 'dipendente', 'supervisore_it', 'customer_service']
+
+interface NavItem {
+  to: string
+  label: string
+  icon: React.ElementType
+  exact?: boolean
+  allowedRoles: UserRole[]
+}
+
+const navItems: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true, allowedRoles: ALL_ROLES },
+  { to: '/prenotazione', label: 'Prenotazioni', icon: CalendarPlus, allowedRoles: ALL_ROLES },
+  { to: '/flotta', label: 'Flotta', icon: Truck, allowedRoles: ['gestore_flotta', 'supervisore_it'] },
+  { to: '/tracking', label: 'Tracking Live', icon: MapPin, allowedRoles: ['gestore_flotta', 'supervisore_it', 'customer_service'] },
+  { to: '/fatturazione', label: 'Fatturazione', icon: Receipt, allowedRoles: ['gestore_flotta', 'azienda', 'supervisore_it'] },
+  { to: '/carbon', label: 'Carbon Footprint', icon: Leaf, allowedRoles: ['gestore_flotta', 'azienda', 'supervisore_it'] },
+  { to: '/compliance', label: 'Compliance', icon: ShieldCheck, allowedRoles: ['gestore_flotta', 'supervisore_it'] },
+  { to: '/utenti', label: 'Gestione Utenti', icon: Users, allowedRoles: ['supervisore_it'] },
 ]
 
+const ROLE_BADGE_COLORS: Record<UserRole, string> = {
+  autista: 'bg-blue-500',
+  gestore_flotta: 'bg-violet-500',
+  azienda: 'bg-amber-500',
+  dipendente: 'bg-emerald-500',
+  supervisore_it: 'bg-red-500',
+  customer_service: 'bg-cyan-500',
+}
+
 export default function Sidebar() {
-  const { company, user, logout } = useAuth()
+  const { company, user, logout, role } = useAuth()
   const { state, dispatch } = useAppContext()
   const open = state.ui.sidebarOpen
   const location = useLocation()
@@ -65,32 +88,52 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 py-4 overflow-y-auto">
         <ul className="space-y-1 px-2">
-          {navItems.map(({ to, label, icon: Icon, exact }) => {
+          {navItems.map(({ to, label, icon: Icon, exact, allowedRoles }) => {
             const isActive = exact ? location.pathname === to : location.pathname.startsWith(to)
+            const allowed = role ? allowedRoles.includes(role) : false
             return (
               <li key={to}>
-                <NavLink
-                  to={to}
-                  title={!open ? label : undefined}
-                  className={clsx(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-brand-500 text-white'
-                      : 'text-brand-200 hover:bg-brand-800 hover:text-white',
-                    !open && 'justify-center px-2'
-                  )}
-                >
-                  <Icon size={18} className="flex-shrink-0" />
-                  {open && <span className="truncate">{label}</span>}
-                </NavLink>
+                {allowed ? (
+                  <NavLink
+                    to={to}
+                    title={!open ? label : undefined}
+                    className={clsx(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                      isActive
+                        ? 'bg-brand-500 text-white'
+                        : 'text-brand-200 hover:bg-brand-800 hover:text-white',
+                      !open && 'justify-center px-2'
+                    )}
+                  >
+                    <Icon size={18} className="flex-shrink-0" />
+                    {open && <span className="truncate">{label}</span>}
+                  </NavLink>
+                ) : (
+                  <div
+                    title={!open ? `${label} — Accesso non autorizzato` : undefined}
+                    className={clsx(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium opacity-25 cursor-not-allowed select-none',
+                      !open && 'justify-center px-2'
+                    )}
+                  >
+                    <Icon size={18} className="flex-shrink-0 text-brand-200" />
+                    {open && <span className="truncate text-brand-200">{label}</span>}
+                  </div>
+                )}
               </li>
             )
           })}
         </ul>
       </nav>
 
-      {/* Logout */}
-      <div className="p-2 border-t border-brand-800">
+      {/* Role badge + Logout */}
+      <div className="p-2 border-t border-brand-800 space-y-1">
+        {open && role && (
+          <div className="flex items-center gap-2 px-3 py-1.5">
+            <span className={clsx('w-2 h-2 rounded-full flex-shrink-0', ROLE_BADGE_COLORS[role])} />
+            <span className="text-xs text-brand-300 truncate">{USER_ROLE_LABELS[role]}</span>
+          </div>
+        )}
         <button
           onClick={logout}
           title={!open ? 'Esci' : undefined}
