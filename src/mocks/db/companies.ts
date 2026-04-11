@@ -31,10 +31,10 @@ export const mockCompanies: Company[] = [
       { id: 'emp-003', companyId: 'comp-001', firstName: 'Giovanni', lastName: 'Verdi', email: 'g.verdi@acme.it', phone: '+39 333 3333333', costCenterId: 'cc-003', role: 'dipendente', isActive: true },
       // ─── Amministratore azienda cliente (prenotazioni + fatture azienda) ───
       { id: 'emp-004', companyId: 'comp-001', firstName: 'Chiara', lastName: 'Conti', email: 'cfo.admin@acme.it', phone: '+39 333 4444444', costCenterId: 'cc-001', role: 'azienda', isActive: true },
-      // ─── Gestore Flotta NCC (flotta + tracking + fatturazione corse) ───
-      { id: 'emp-010', companyId: 'comp-001', firstName: 'Giulia', lastName: 'Bianchi', email: 'giulia.bianchi@ncc.it', phone: '+39 333 1010101', costCenterId: 'cc-001', role: 'gestore_flotta', isActive: true },
+      // ─── Gestore Flotta NCC — con driverId simula operatore singolo (è anche autista) ───
+      { id: 'emp-010', companyId: 'comp-001', firstName: 'Giulia', lastName: 'Bianchi', email: 'giulia.bianchi@ncc.it', phone: '+39 333 1010101', costCenterId: 'cc-001', role: 'gestore_flotta', isActive: true, driverId: 'drv-002' },
       // ─── Autista NCC (solo proprie corse assegnate) ───
-      { id: 'emp-011', companyId: 'comp-001', firstName: 'Luca', lastName: 'Ferrari', email: 'luca.ferrari@ncc.it', phone: '+39 333 1111112', costCenterId: 'cc-001', role: 'autista', isActive: true, driverId: 'driver-001' },
+      { id: 'emp-011', companyId: 'comp-001', firstName: 'Luca', lastName: 'Ferrari', email: 'luca.ferrari@ncc.it', phone: '+39 333 1111112', costCenterId: 'cc-001', role: 'autista', isActive: true, driverId: 'drv-001' },
       // ─── Supervisore IT (accesso totale + gestione utenti) ───
       { id: 'emp-012', companyId: 'comp-001', firstName: 'Andrea', lastName: 'Mancini', email: 'admin.it@sistema.it', phone: '+39 333 1212121', costCenterId: 'cc-004', role: 'supervisore_it', isActive: true },
       // ─── Customer Service (corse read + chat) ───
